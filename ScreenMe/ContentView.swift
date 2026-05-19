@@ -9,7 +9,9 @@ struct ContentView: View {
 
             CaptureToolbarView(
                 phase: captureStore.phase,
-                startSelectionCapture: captureStore.startSelectionCapture
+                captureDelaySeconds: $captureStore.captureDelaySeconds,
+                startSelectionCapture: captureStore.startSelectionCapture,
+                cancelPendingCapture: captureStore.cancelPendingCapture
             )
 
             HStack(spacing: 16) {

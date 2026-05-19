@@ -84,6 +84,8 @@ private struct PhaseBadge: View {
             "circle"
         case .requestingPermission:
             "lock"
+        case .countingDown:
+            "timer"
         case .selecting:
             "cursorarrow"
         case .capturing:
@@ -101,7 +103,7 @@ private struct PhaseBadge: View {
             .green
         case .failed:
             .orange
-        case .requestingPermission, .selecting, .capturing:
+        case .requestingPermission, .countingDown, .selecting, .capturing:
             .red
         case .idle:
             .secondary

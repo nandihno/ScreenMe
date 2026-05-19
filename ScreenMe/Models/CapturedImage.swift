@@ -3,6 +3,7 @@ import AppKit
 enum CapturePhase: Equatable {
     case idle
     case requestingPermission
+    case countingDown(Int)
     case selecting
     case capturing
     case ready
@@ -14,6 +15,8 @@ enum CapturePhase: Equatable {
             "Ready"
         case .requestingPermission:
             "Requesting Permission"
+        case .countingDown(let remainingSeconds):
+            "Starting in \(remainingSeconds)s"
         case .selecting:
             "Selecting"
         case .capturing:
@@ -27,11 +30,19 @@ enum CapturePhase: Equatable {
 
     var isBusy: Bool {
         switch self {
-        case .requestingPermission, .selecting, .capturing:
+        case .requestingPermission, .countingDown, .selecting, .capturing:
             true
         case .idle, .ready, .failed:
             false
         }
+    }
+
+    var isCountingDown: Bool {
+        if case .countingDown = self {
+            return true
+        }
+
+        return false
     }
 }
 

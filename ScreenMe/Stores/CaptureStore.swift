@@ -5,10 +5,12 @@ import Combine
 final class CaptureStore: ObservableObject {
     @Published private(set) var phase: CapturePhase = .idle
     @Published private(set) var latestCapture: CapturedImage?
+    @Published var captureDelaySeconds = 0
     @Published var statusMessage = "Select part of the screen to create a PNG."
 
     private let captureService: ScreenCaptureService
     private var hiddenWindows: [NSWindow] = []
+    private var captureTask: Task<Void, Never>?
 
     init(captureService: ScreenCaptureService? = nil) {
         self.captureService = captureService ?? ScreenCaptureService()
@@ -27,9 +29,22 @@ final class CaptureStore: ObservableObject {
             return
         }
 
-        Task {
+        captureTask = Task {
             await prepareAndStartSelection()
         }
+    }
+
+    func cancelPendingCapture() {
+        guard phase.isCountingDown else {
+            return
+        }
+
+        captureTask?.cancel()
+        captureTask = nil
+        phase = latestCapture == nil ? .idle : .ready
+        statusMessage = latestCapture == nil
+            ? "Timed capture cancelled. Start a new capture when ready."
+            : "Timed capture cancelled. The previous capture is still available."
     }
 
     func copyLatestCapture() {
@@ -58,6 +73,20 @@ final class CaptureStore: ObservableObject {
     }
 
     private func prepareAndStartSelection() async {
+        let delaySeconds = max(0, captureDelaySeconds)
+
+        if delaySeconds > 0 {
+            do {
+                try await runCountdown(seconds: delaySeconds)
+            } catch {
+                return
+            }
+        }
+
+        guard !Task.isCancelled else {
+            return
+        }
+
         phase = .selecting
         statusMessage = "Use the macOS picker to drag a region. Press Esc to cancel."
         hideAppWindows()
@@ -68,6 +97,7 @@ final class CaptureStore: ObservableObject {
     private func handleSystemPickerCapture() async {
         defer {
             restoreAppWindows()
+            captureTask = nil
         }
 
         phase = .capturing
@@ -113,5 +143,14 @@ final class CaptureStore: ObservableObject {
         hiddenWindows.forEach { $0.makeKeyAndOrderFront(nil) }
         hiddenWindows.removeAll()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func runCountdown(seconds: Int) async throws {
+        for remainingSeconds in stride(from: seconds, through: 1, by: -1) {
+            try Task.checkCancellation()
+            phase = .countingDown(remainingSeconds)
+            statusMessage = "Capture starts in \(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")."
+            try await Task.sleep(for: .seconds(1))
+        }
     }
 }
