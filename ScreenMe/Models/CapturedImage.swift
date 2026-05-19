@@ -17,10 +17,17 @@ struct FullScreenCaptureTarget: Identifiable, Equatable, Sendable {
     }
 }
 
-enum CaptureMode: String, CaseIterable, Equatable {
+enum CaptureMode: String, Equatable {
     case selection
     case window
     case full
+    case saved
+
+    static let allCases: [CaptureMode] = [
+        .selection,
+        .window,
+        .full
+    ]
 
     var title: String {
         switch self {
@@ -30,6 +37,8 @@ enum CaptureMode: String, CaseIterable, Equatable {
             "Window"
         case .full:
             "Full"
+        case .saved:
+            "Saved"
         }
     }
 
@@ -41,6 +50,8 @@ enum CaptureMode: String, CaseIterable, Equatable {
             "macwindow"
         case .full:
             "rectangle.inset.filled"
+        case .saved:
+            "photo"
         }
     }
 
@@ -52,6 +63,8 @@ enum CaptureMode: String, CaseIterable, Equatable {
             "Use the macOS picker to choose a window. Press Esc to cancel."
         case .full:
             "ScreenMe will hide and capture the full screen."
+        case .saved:
+            "Saved capture selected."
         }
     }
 
@@ -61,6 +74,8 @@ enum CaptureMode: String, CaseIterable, Equatable {
             "Waiting for the system screenshot picker..."
         case .full:
             "Capturing the full screen..."
+        case .saved:
+            "Loading saved capture..."
         }
     }
 
@@ -72,6 +87,8 @@ enum CaptureMode: String, CaseIterable, Equatable {
             "window capture"
         case .full:
             "full-screen capture"
+        case .saved:
+            "saved capture"
         }
     }
 
@@ -79,7 +96,7 @@ enum CaptureMode: String, CaseIterable, Equatable {
         switch self {
         case .selection, .window:
             true
-        case .full:
+        case .full, .saved:
             false
         }
     }

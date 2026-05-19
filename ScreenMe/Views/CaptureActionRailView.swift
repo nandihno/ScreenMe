@@ -3,15 +3,22 @@ import SwiftUI
 struct CaptureActionRailView: View {
     let phase: CapturePhase
     let capture: CapturedImage?
+    let selectedAnnotationShape: CaptureAnnotationShape
+    let selectedAnnotationColor: CaptureAnnotationColor
+    let annotations: [CaptureAnnotation]
     let statusMessage: String
     let copy: () -> Void
     let reveal: () -> Void
+    let selectAnnotationShape: (CaptureAnnotationShape) -> Void
+    let selectAnnotationColor: (CaptureAnnotationColor) -> Void
+    let undoAnnotation: () -> Void
+    let clearAnnotations: () -> Void
     let openScreenRecordingSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Latest Capture")
+                Text("Active Capture")
                     .font(.headline)
 
                 PhaseBadge(phase: phase)
@@ -31,7 +38,7 @@ struct CaptureActionRailView: View {
                 .disabled(capture == nil)
 
                 Button(action: reveal) {
-                    Label("Reveal the last 10 Captures", systemImage: "folder")
+                    Label("Reveal in Finder", systemImage: "folder")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -40,6 +47,17 @@ struct CaptureActionRailView: View {
             }
 
             CaptureMetadataView(capture: capture)
+
+            AnnotationControlsView(
+                selectedShape: selectedAnnotationShape,
+                selectedColor: selectedAnnotationColor,
+                annotationCount: annotations.count,
+                isEnabled: capture != nil && !phase.isBusy,
+                selectShape: selectAnnotationShape,
+                selectColor: selectAnnotationColor,
+                undoAnnotation: undoAnnotation,
+                clearAnnotations: clearAnnotations
+            )
 
             if case .failed = phase {
                 Button(action: openScreenRecordingSettings) {
@@ -63,6 +81,90 @@ struct CaptureActionRailView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(.quaternary)
         }
+    }
+}
+
+private struct AnnotationControlsView: View {
+    let selectedShape: CaptureAnnotationShape
+    let selectedColor: CaptureAnnotationColor
+    let annotationCount: Int
+    let isEnabled: Bool
+    let selectShape: (CaptureAnnotationShape) -> Void
+    let selectColor: (CaptureAnnotationColor) -> Void
+    let undoAnnotation: () -> Void
+    let clearAnnotations: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Annotate")
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Text("\(annotationCount)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                ForEach(CaptureAnnotationShape.allCases) { shape in
+                    Button {
+                        selectShape(shape)
+                    } label: {
+                        Image(systemName: shape.systemImage)
+                            .frame(width: 28, height: 24)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(selectedShape == shape ? .red : nil)
+                    .help(shape.title)
+                    .disabled(!isEnabled)
+                }
+
+                Divider()
+                    .frame(height: 24)
+
+                ForEach(CaptureAnnotationColor.allCases) { color in
+                    Button {
+                        selectColor(color)
+                    } label: {
+                        Circle()
+                            .fill(color.color)
+                            .frame(width: 14, height: 14)
+                            .overlay {
+                                Circle()
+                                    .strokeBorder(
+                                        selectedColor == color ? .primary : .quaternary,
+                                        lineWidth: selectedColor == color ? 2 : 1
+                                    )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help(color.title)
+                    .disabled(!isEnabled)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button(action: undoAnnotation) {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!isEnabled || annotationCount == 0)
+
+                Button(action: clearAnnotations) {
+                    Label("Clear", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!isEnabled || annotationCount == 0)
+            }
+        }
+        .font(.callout)
     }
 }
 

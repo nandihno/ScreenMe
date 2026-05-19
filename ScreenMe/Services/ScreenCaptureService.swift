@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import ImageIO
+import UniformTypeIdentifiers
 
 struct CapturedRegionFile: @unchecked Sendable {
     let image: CGImage
@@ -70,6 +71,21 @@ final class ScreenCaptureService {
         }.value
     }
 
+    func recentCaptures(limit: Int = maximumSavedCaptures) throws -> [RecentCaptureItem] {
+        let folderURL = try savedCaptureFolderURL(createIfNeeded: false)
+
+        guard FileManager.default.fileExists(atPath: folderURL.path) else {
+            return []
+        }
+
+        return try Self.savedCaptureFiles(in: folderURL)
+            .suffix(limit)
+            .reversed()
+            .compactMap { file in
+                try? Self.recentCaptureItem(fileURL: file.url, capturedAt: file.date)
+            }
+    }
+
     nonisolated private static func screenshotArguments(
         for mode: CaptureMode,
         fullScreenTarget: FullScreenCaptureTarget?,
@@ -85,6 +101,8 @@ final class ScreenCaptureService {
                 return ["-D", "\(fullScreenTarget.displayNumber)", "-x", fileURL.path]
             }
 
+            return ["-x", fileURL.path]
+        case .saved:
             return ["-x", fileURL.path]
         }
     }
@@ -145,32 +163,127 @@ final class ScreenCaptureService {
         }
     }
 
-    func copyToClipboard(_ capture: CapturedImage) {
-        let item = NSPasteboardItem()
-        item.setData(capture.pngData, forType: .png)
+    @discardableResult
+    func copyToClipboard(
+        _ capture: CapturedImage,
+        annotations: [CaptureAnnotation] = []
+    ) -> Bool {
+        let pngData: Data
+        let copiedAnnotatedImage: Bool
 
-        if let tiffData = capture.image.tiffRepresentation {
+        if annotations.isEmpty {
+            pngData = capture.pngData
+            copiedAnnotatedImage = false
+        } else if let annotatedPNGData = Self.renderedPNGData(
+            for: capture,
+            annotations: annotations
+        ) {
+            pngData = annotatedPNGData
+            copiedAnnotatedImage = true
+        } else {
+            pngData = capture.pngData
+            copiedAnnotatedImage = false
+        }
+
+        let item = NSPasteboardItem()
+        item.setData(pngData, forType: .png)
+
+        let pasteboardImage = NSImage(data: pngData) ?? capture.image
+        if let tiffData = pasteboardImage.tiffRepresentation {
             item.setData(tiffData, forType: .tiff)
         }
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([item])
+
+        return copiedAnnotatedImage
+    }
+
+    nonisolated private static func renderedPNGData(
+        for capture: CapturedImage,
+        annotations: [CaptureAnnotation]
+    ) -> Data? {
+        guard
+            let source = CGImageSourceCreateWithData(capture.pngData as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else {
+            return nil
+        }
+
+        let width = image.width
+        let height = image.height
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return nil
+        }
+
+        let canvasRect = CGRect(x: 0, y: 0, width: width, height: height)
+        context.draw(image, in: canvasRect)
+
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        for annotation in annotations {
+            let annotationRect = CGRect(
+                x: annotation.normalizedRect.minX * CGFloat(width),
+                y: annotation.normalizedRect.minY * CGFloat(height),
+                width: annotation.normalizedRect.width * CGFloat(width),
+                height: annotation.normalizedRect.height * CGFloat(height)
+            )
+
+            let strokeColor = annotation.strokeColor.nsColor
+                .usingColorSpace(.sRGB)?
+                .cgColor ?? annotation.strokeColor.nsColor.cgColor
+            context.setStrokeColor(strokeColor)
+            context.setLineWidth(annotation.lineWidth)
+
+            switch annotation.shape {
+            case .rectangle:
+                context.stroke(annotationRect)
+            case .ellipse:
+                context.strokeEllipse(in: annotationRect)
+            }
+        }
+
+        guard let renderedImage = context.makeImage() else {
+            return nil
+        }
+
+        let data = NSMutableData()
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                data,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+            )
+        else {
+            return nil
+        }
+
+        CGImageDestinationAddImage(destination, renderedImage, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+
+        return data as Data
     }
 
     private func nextPNGFileURL(capturedAt: Date) throws -> URL {
-        guard let picturesDirectory = FileManager.default.urls(
-            for: .picturesDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw ScreenCaptureServiceError.noPicturesDirectory
-        }
-
-        let folderURL = picturesDirectory.appendingPathComponent("ScreenMe", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: folderURL,
-            withIntermediateDirectories: true
-        )
+        let folderURL = try savedCaptureFolderURL(createIfNeeded: true)
 
         let timestamp = filenameFormatter.string(from: capturedAt)
         let baseName = "\(Self.savedCapturePrefix)\(timestamp)"
@@ -188,6 +301,50 @@ final class ScreenCaptureService {
         }
 
         return candidateURL
+    }
+
+    private func savedCaptureFolderURL(createIfNeeded: Bool) throws -> URL {
+        guard let picturesDirectory = FileManager.default.urls(
+            for: .picturesDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw ScreenCaptureServiceError.noPicturesDirectory
+        }
+
+        let folderURL = picturesDirectory.appendingPathComponent("ScreenMe", isDirectory: true)
+        if createIfNeeded {
+            try FileManager.default.createDirectory(
+                at: folderURL,
+                withIntermediateDirectories: true
+            )
+        }
+
+        return folderURL
+    }
+
+    nonisolated private static func recentCaptureItem(
+        fileURL: URL,
+        capturedAt: Date
+    ) throws -> RecentCaptureItem {
+        let pngData = try Data(contentsOf: fileURL)
+
+        guard
+            let source = CGImageSourceCreateWithData(pngData as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else {
+            throw ScreenCaptureServiceError.captureReturnedNoImage
+        }
+
+        return RecentCaptureItem(
+            fileURL: fileURL,
+            image: NSImage(
+                cgImage: image,
+                size: NSSize(width: image.width, height: image.height)
+            ),
+            pngData: pngData,
+            pixelSize: CGSize(width: image.width, height: image.height),
+            capturedAt: capturedAt
+        )
     }
 
     nonisolated private static func pruneSavedCaptures(in folderURL: URL) {

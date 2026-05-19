@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var captureStore = CaptureStore()
+    @State private var selectedWorkspaceTab: WorkspaceTab = .annotate
 
     var body: some View {
         VStack(spacing: 16) {
@@ -19,17 +20,20 @@ struct ContentView: View {
                 cancelPendingCapture: captureStore.cancelPendingCapture
             )
 
-            HStack(spacing: 16) {
-                CapturePreviewView(capture: captureStore.latestCapture)
+            Picker("Workspace", selection: $selectedWorkspaceTab) {
+                Label("Annotate", systemImage: "pencil.and.outline")
+                    .tag(WorkspaceTab.annotate)
+                Label("Recent", systemImage: "photo.on.rectangle")
+                    .tag(WorkspaceTab.recent)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 260)
 
-                CaptureActionRailView(
-                    phase: captureStore.phase,
-                    capture: captureStore.latestCapture,
-                    statusMessage: captureStore.statusMessage,
-                    copy: captureStore.copyLatestCapture,
-                    reveal: captureStore.revealLatestPNG,
-                    openScreenRecordingSettings: captureStore.openScreenRecordingSettings
-                )
+            switch selectedWorkspaceTab {
+            case .annotate:
+                annotationWorkspace
+            case .recent:
+                recentWorkspace
             }
         }
         .padding(22)
@@ -47,6 +51,59 @@ struct ContentView: View {
         }
     }
 
+    private var annotationWorkspace: some View {
+        HStack(spacing: 16) {
+            CapturePreviewView(
+                capture: captureStore.latestCapture,
+                annotations: captureStore.annotations,
+                selectedAnnotationShape: captureStore.selectedAnnotationShape,
+                selectedAnnotationColor: captureStore.selectedAnnotationColor,
+                addAnnotation: captureStore.addAnnotation
+            )
+
+            actionRail
+        }
+    }
+
+    private var recentWorkspace: some View {
+        HStack(spacing: 16) {
+            CaptureLibraryView(
+                recentCaptures: captureStore.recentCaptures,
+                selectedCaptureID: captureStore.selectedRecentCaptureID,
+                phase: captureStore.phase,
+                refresh: { captureStore.refreshRecentCaptures() },
+                selectCapture: captureStore.selectRecentCapture,
+                openForAnnotation: { item in
+                    captureStore.selectRecentCapture(item)
+                    selectedWorkspaceTab = .annotate
+                }
+            )
+
+            actionRail
+        }
+        .onAppear {
+            captureStore.refreshRecentCaptures()
+        }
+    }
+
+    private var actionRail: some View {
+        CaptureActionRailView(
+            phase: captureStore.phase,
+            capture: captureStore.latestCapture,
+            selectedAnnotationShape: captureStore.selectedAnnotationShape,
+            selectedAnnotationColor: captureStore.selectedAnnotationColor,
+            annotations: captureStore.annotations,
+            statusMessage: captureStore.statusMessage,
+            copy: captureStore.copyLatestCapture,
+            reveal: captureStore.revealLatestPNG,
+            selectAnnotationShape: captureStore.selectAnnotationShape,
+            selectAnnotationColor: captureStore.selectAnnotationColor,
+            undoAnnotation: captureStore.undoLatestAnnotation,
+            clearAnnotations: captureStore.clearAnnotations,
+            openScreenRecordingSettings: captureStore.openScreenRecordingSettings
+        )
+    }
+
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
@@ -60,7 +117,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Text("Phase 1")
+            Text("Phase 2")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.red)
                 .padding(.horizontal, 10)
@@ -68,6 +125,11 @@ struct ContentView: View {
                 .background(.red.opacity(0.12), in: Capsule())
         }
     }
+}
+
+private enum WorkspaceTab {
+    case annotate
+    case recent
 }
 
 #Preview {

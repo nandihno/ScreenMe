@@ -9,15 +9,22 @@ final class CaptureStore: ObservableObject {
     @Published var captureDelaySeconds = 0
     @Published private(set) var fullScreenTargets: [FullScreenCaptureTarget] = []
     @Published var selectedFullScreenTargetID: CGDirectDisplayID?
+    @Published var selectedAnnotationShape: CaptureAnnotationShape = .rectangle
+    @Published var selectedAnnotationColor: CaptureAnnotationColor = .red
+    @Published private(set) var annotations: [CaptureAnnotation] = []
+    @Published private(set) var recentCaptures: [RecentCaptureItem] = []
+    @Published private(set) var selectedRecentCaptureID: URL?
     @Published var statusMessage = "Select part of the screen to create a PNG."
 
     private let captureService: ScreenCaptureService
     private var hiddenWindows: [NSWindow] = []
     private var captureTask: Task<Void, Never>?
+    private var annotationsByCaptureID: [URL: [CaptureAnnotation]] = [:]
 
     init(captureService: ScreenCaptureService? = nil) {
         self.captureService = captureService ?? ScreenCaptureService()
         refreshFullScreenTargets()
+        refreshRecentCaptures(updateStatus: false)
     }
 
     var canCopy: Bool {
@@ -26,6 +33,10 @@ final class CaptureStore: ObservableObject {
 
     var canReveal: Bool {
         latestCapture?.fileURL != nil
+    }
+
+    var canUndoAnnotation: Bool {
+        !annotations.isEmpty
     }
 
     func selectCaptureMode(_ mode: CaptureMode) {
@@ -80,8 +91,12 @@ final class CaptureStore: ObservableObject {
             return
         }
 
-        captureService.copyToClipboard(latestCapture)
-        statusMessage = "Copied \(latestCapture.dimensionsText) PNG to the clipboard."
+        let copiedAnnotatedImage = captureService.copyToClipboard(
+            latestCapture,
+            annotations: annotations
+        )
+        let annotationDescription = copiedAnnotatedImage ? " annotated" : ""
+        statusMessage = "Copied\(annotationDescription) \(latestCapture.dimensionsText) PNG to the clipboard."
     }
 
     func revealLatestPNG() {
@@ -98,6 +113,86 @@ final class CaptureStore: ObservableObject {
         }
 
         NSWorkspace.shared.open(url)
+    }
+
+    func refreshRecentCaptures(updateStatus: Bool = true) {
+        do {
+            recentCaptures = try captureService.recentCaptures()
+            if updateStatus {
+                statusMessage = recentCaptures.isEmpty
+                    ? "No saved captures found in Pictures/ScreenMe."
+                    : "Loaded \(recentCaptures.count) recent capture\(recentCaptures.count == 1 ? "" : "s")."
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func selectRecentCapture(_ item: RecentCaptureItem) {
+        guard !phase.isBusy else {
+            return
+        }
+
+        saveAnnotationsForCurrentCapture()
+        latestCapture = item.capturedImage()
+        selectedRecentCaptureID = item.id
+        annotations = annotationsByCaptureID[item.id] ?? []
+        phase = .ready
+        statusMessage = "Selected \(item.fileName) for annotation."
+    }
+
+    func selectAnnotationShape(_ shape: CaptureAnnotationShape) {
+        selectedAnnotationShape = shape
+        statusMessage = "\(shape.title) annotation selected."
+    }
+
+    func selectAnnotationColor(_ color: CaptureAnnotationColor) {
+        selectedAnnotationColor = color
+        statusMessage = "\(color.title) annotation color selected."
+    }
+
+    func addAnnotation(normalizedRect: CGRect) {
+        guard latestCapture != nil else {
+            return
+        }
+
+        let standardizedRect = normalizedRect.standardized
+        guard standardizedRect.width >= 0.01, standardizedRect.height >= 0.01 else {
+            return
+        }
+
+        annotations.append(
+            CaptureAnnotation(
+                shape: selectedAnnotationShape,
+                normalizedRect: standardizedRect,
+                strokeColor: selectedAnnotationColor
+            )
+        )
+        saveAnnotationsForCurrentCapture()
+        phase = .ready
+        statusMessage = "Added \(selectedAnnotationShape.title.lowercased()) annotation."
+    }
+
+    func undoLatestAnnotation() {
+        guard !annotations.isEmpty else {
+            return
+        }
+
+        annotations.removeLast()
+        saveAnnotationsForCurrentCapture()
+        statusMessage = annotations.isEmpty
+            ? "Removed the last annotation. The capture is clean."
+            : "Removed the last annotation."
+    }
+
+    func clearAnnotations() {
+        guard !annotations.isEmpty else {
+            return
+        }
+
+        annotations.removeAll()
+        saveAnnotationsForCurrentCapture()
+        statusMessage = "Cleared annotations from the current capture."
     }
 
     private func prepareAndStartCapture(mode: CaptureMode) async {
@@ -153,6 +248,8 @@ final class CaptureStore: ObservableObject {
             )
             let savedDescription = fullScreenTarget?.title ?? mode.savedDescription
             statusMessage = "Saved \(savedDescription) \(capturedRegion.fileURL.lastPathComponent) to Pictures/ScreenMe."
+            saveAnnotationsForCurrentCapture()
+            annotations.removeAll()
 
             latestCapture = CapturedImage(
                 image: NSImage(
@@ -166,6 +263,8 @@ final class CaptureStore: ObservableObject {
                 sourceRect: fullScreenTarget?.frame ?? .zero,
                 captureMode: mode
             )
+            selectedRecentCaptureID = capturedRegion.fileURL
+            refreshRecentCaptures(updateStatus: false)
             phase = .ready
         } catch ScreenCaptureServiceError.captureCancelled {
             phase = latestCapture == nil ? .idle : .ready
@@ -199,6 +298,14 @@ final class CaptureStore: ObservableObject {
             statusMessage = "Capture starts in \(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")."
             try await Task.sleep(for: .seconds(1))
         }
+    }
+
+    private func saveAnnotationsForCurrentCapture() {
+        guard let fileURL = latestCapture?.fileURL else {
+            return
+        }
+
+        annotationsByCaptureID[fileURL] = annotations
     }
 
     private var selectedFullScreenTarget: FullScreenCaptureTarget? {
