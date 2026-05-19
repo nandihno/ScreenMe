@@ -5,7 +5,10 @@ import Combine
 final class CaptureStore: ObservableObject {
     @Published private(set) var phase: CapturePhase = .idle
     @Published private(set) var latestCapture: CapturedImage?
+    @Published var captureMode: CaptureMode = .selection
     @Published var captureDelaySeconds = 0
+    @Published private(set) var fullScreenTargets: [FullScreenCaptureTarget] = []
+    @Published var selectedFullScreenTargetID: CGDirectDisplayID?
     @Published var statusMessage = "Select part of the screen to create a PNG."
 
     private let captureService: ScreenCaptureService
@@ -14,6 +17,7 @@ final class CaptureStore: ObservableObject {
 
     init(captureService: ScreenCaptureService? = nil) {
         self.captureService = captureService ?? ScreenCaptureService()
+        refreshFullScreenTargets()
     }
 
     var canCopy: Bool {
@@ -24,13 +28,37 @@ final class CaptureStore: ObservableObject {
         latestCapture?.fileURL != nil
     }
 
-    func startSelectionCapture() {
+    func selectCaptureMode(_ mode: CaptureMode) {
         guard !phase.isBusy else {
             return
         }
 
+        captureMode = mode
+        if mode == .full {
+            refreshFullScreenTargets(preferAppWindowScreen: true)
+        }
+        statusMessage = "\(mode.title) capture selected."
+    }
+
+    func selectFullScreenTarget(id: CGDirectDisplayID) {
+        guard !phase.isBusy else {
+            return
+        }
+
+        selectedFullScreenTargetID = id
+        if let target = selectedFullScreenTarget {
+            statusMessage = "Full capture will use \(target.title)."
+        }
+    }
+
+    func startCapture() {
+        guard !phase.isBusy else {
+            return
+        }
+
+        let mode = captureMode
         captureTask = Task {
-            await prepareAndStartSelection()
+            await prepareAndStartCapture(mode: mode)
         }
     }
 
@@ -72,7 +100,7 @@ final class CaptureStore: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    private func prepareAndStartSelection() async {
+    private func prepareAndStartCapture(mode: CaptureMode) async {
         let delaySeconds = max(0, captureDelaySeconds)
 
         if delaySeconds > 0 {
@@ -87,26 +115,44 @@ final class CaptureStore: ObservableObject {
             return
         }
 
-        phase = .selecting
-        statusMessage = "Use the macOS picker to drag a region. Press Esc to cancel."
-        hideAppWindows()
+        if mode == .full {
+            refreshFullScreenTargets(preferAppWindowScreen: selectedFullScreenTargetID == nil)
+        }
 
-        await handleSystemPickerCapture()
+        let fullScreenTarget = mode == .full ? selectedFullScreenTarget : nil
+        phase = mode.usesInteractivePicker ? .selecting : .capturing
+        if let fullScreenTarget {
+            statusMessage = "ScreenMe will hide and capture \(fullScreenTarget.title)."
+        } else {
+            statusMessage = mode.startStatus
+        }
+        hideAppWindows()
+        try? await Task.sleep(for: .milliseconds(200))
+
+        await handleSystemPickerCapture(mode: mode, fullScreenTarget: fullScreenTarget)
     }
 
-    private func handleSystemPickerCapture() async {
+    private func handleSystemPickerCapture(
+        mode: CaptureMode,
+        fullScreenTarget: FullScreenCaptureTarget?
+    ) async {
         defer {
             restoreAppWindows()
             captureTask = nil
         }
 
         phase = .capturing
-        statusMessage = "Waiting for the system screenshot picker..."
+        statusMessage = mode.captureStatus
 
         do {
             let capturedAt = Date()
-            let capturedRegion = try await captureService.captureInteractiveRegion(capturedAt: capturedAt)
-            statusMessage = "Saved \(capturedRegion.fileURL.lastPathComponent) to Pictures/ScreenMe."
+            let capturedRegion = try await captureService.captureInteractive(
+                mode: mode,
+                fullScreenTarget: fullScreenTarget,
+                capturedAt: capturedAt
+            )
+            let savedDescription = fullScreenTarget?.title ?? mode.savedDescription
+            statusMessage = "Saved \(savedDescription) \(capturedRegion.fileURL.lastPathComponent) to Pictures/ScreenMe."
 
             latestCapture = CapturedImage(
                 image: NSImage(
@@ -117,7 +163,8 @@ final class CaptureStore: ObservableObject {
                 fileURL: capturedRegion.fileURL,
                 pixelSize: CGSize(width: capturedRegion.image.width, height: capturedRegion.image.height),
                 capturedAt: capturedAt,
-                sourceRect: .zero
+                sourceRect: fullScreenTarget?.frame ?? .zero,
+                captureMode: mode
             )
             phase = .ready
         } catch ScreenCaptureServiceError.captureCancelled {
@@ -152,5 +199,53 @@ final class CaptureStore: ObservableObject {
             statusMessage = "Capture starts in \(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")."
             try await Task.sleep(for: .seconds(1))
         }
+    }
+
+    private var selectedFullScreenTarget: FullScreenCaptureTarget? {
+        guard let selectedFullScreenTargetID else {
+            return fullScreenTargets.first
+        }
+
+        return fullScreenTargets.first { $0.id == selectedFullScreenTargetID }
+            ?? fullScreenTargets.first
+    }
+
+    private func refreshFullScreenTargets(preferAppWindowScreen: Bool = false) {
+        let previousSelection = selectedFullScreenTargetID
+        let screens = NSScreen.screens
+        fullScreenTargets = screens.enumerated().compactMap { index, screen in
+            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+                return nil
+            }
+
+            return FullScreenCaptureTarget(
+                id: displayID,
+                displayNumber: index + 1,
+                name: screen.localizedName,
+                frame: screen.frame,
+                isMain: screen == NSScreen.main
+            )
+        }
+
+        if preferAppWindowScreen, let appDisplayID = appWindowDisplayID() {
+            selectedFullScreenTargetID = appDisplayID
+        } else if let previousSelection,
+                  fullScreenTargets.contains(where: { $0.id == previousSelection }) {
+            selectedFullScreenTargetID = previousSelection
+        } else {
+            selectedFullScreenTargetID = appWindowDisplayID() ?? fullScreenTargets.first?.id
+        }
+    }
+
+    private func appWindowDisplayID() -> CGDirectDisplayID? {
+        let candidateWindow = NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first { $0.isVisible && !$0.isMiniaturized }
+
+        guard let screen = candidateWindow?.screen else {
+            return NSScreen.main?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+        }
+
+        return screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 }

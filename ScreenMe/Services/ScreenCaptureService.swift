@@ -48,18 +48,45 @@ final class ScreenCaptureService {
         return formatter
     }()
 
-    func captureInteractiveRegion(capturedAt: Date) async throws -> CapturedRegionFile {
+    func captureInteractive(
+        mode: CaptureMode,
+        fullScreenTarget: FullScreenCaptureTarget?,
+        capturedAt: Date
+    ) async throws -> CapturedRegionFile {
         let fileURL = try nextPNGFileURL(capturedAt: capturedAt)
 
         return try await Task.detached(priority: .userInitiated) {
             let capturedFile = try Self.runScreenshotCommand(
-                arguments: ["-i", "-x", fileURL.path],
+                arguments: Self.screenshotArguments(
+                    for: mode,
+                    fullScreenTarget: fullScreenTarget,
+                    fileURL: fileURL
+                ),
                 fileURL: fileURL
             )
 
             Self.pruneSavedCaptures(in: fileURL.deletingLastPathComponent())
             return capturedFile
         }.value
+    }
+
+    nonisolated private static func screenshotArguments(
+        for mode: CaptureMode,
+        fullScreenTarget: FullScreenCaptureTarget?,
+        fileURL: URL
+    ) -> [String] {
+        switch mode {
+        case .selection:
+            return ["-i", "-s", "-x", fileURL.path]
+        case .window:
+            return ["-i", "-w", "-x", fileURL.path]
+        case .full:
+            if let fullScreenTarget {
+                return ["-D", "\(fullScreenTarget.displayNumber)", "-x", fileURL.path]
+            }
+
+            return ["-x", fileURL.path]
+        }
     }
 
     nonisolated private static func runScreenshotCommand(arguments: [String], fileURL: URL) throws -> CapturedRegionFile {

@@ -1,37 +1,46 @@
+import CoreGraphics
 import SwiftUI
 
 struct CaptureToolbarView: View {
     let phase: CapturePhase
+    let captureMode: CaptureMode
     @Binding var captureDelaySeconds: Int
-    let startSelectionCapture: () -> Void
+    let fullScreenTargets: [FullScreenCaptureTarget]
+    @Binding var selectedFullScreenTargetID: CGDirectDisplayID?
+    let selectCaptureMode: (CaptureMode) -> Void
+    let selectFullScreenTarget: (CGDirectDisplayID) -> Void
+    let startCapture: () -> Void
     let cancelPendingCapture: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            ModeButton(
-                title: "Selection",
-                systemImage: "rectangle.dashed",
-                isActive: true
-            )
-
-            ModeButton(
-                title: "Window",
-                systemImage: "macwindow",
-                isActive: false
-            )
-            .disabled(true)
-            .opacity(0.45)
-
-            ModeButton(
-                title: "Full",
-                systemImage: "rectangle.inset.filled",
-                isActive: false
-            )
-            .disabled(true)
-            .opacity(0.45)
+            ForEach(CaptureMode.allCases, id: \.self) { mode in
+                Button {
+                    selectCaptureMode(mode)
+                } label: {
+                    ModeButton(
+                        title: mode.title,
+                        systemImage: mode.systemImage,
+                        isActive: captureMode == mode
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(phase.isBusy)
+            }
 
             Divider()
                 .frame(height: 34)
+
+            if captureMode == .full {
+                FullScreenTargetPicker(
+                    targets: fullScreenTargets,
+                    selectedTargetID: fullScreenTargetBinding
+                )
+                .disabled(phase.isBusy || fullScreenTargets.isEmpty)
+
+                Divider()
+                    .frame(height: 34)
+            }
 
             ModeButton(
                 title: "Timer",
@@ -54,7 +63,7 @@ struct CaptureToolbarView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
             } else {
-                Button(action: startSelectionCapture) {
+                Button(action: startCapture) {
                     Label(buttonTitle, systemImage: "camera.viewfinder")
                         .labelStyle(.titleAndIcon)
                         .font(.system(size: 14, weight: .semibold))
@@ -86,7 +95,11 @@ struct CaptureToolbarView: View {
         case .capturing:
             "Capturing..."
         case .idle, .ready, .failed:
-            captureDelaySeconds > 0 ? "Capture in \(captureDelaySeconds)s" : "Capture"
+            if captureDelaySeconds > 0 {
+                "\(captureMode.title) in \(captureDelaySeconds)s"
+            } else {
+                "Capture \(captureMode.title)"
+            }
         }
     }
 
@@ -96,6 +109,45 @@ struct CaptureToolbarView: View {
         } set: { newValue in
             captureDelaySeconds = max(0, newValue)
         }
+    }
+
+    private var fullScreenTargetBinding: Binding<CGDirectDisplayID> {
+        Binding {
+            selectedFullScreenTargetID ?? fullScreenTargets.first?.id ?? 0
+        } set: { newValue in
+            selectedFullScreenTargetID = newValue
+            selectFullScreenTarget(newValue)
+        }
+    }
+}
+
+private struct FullScreenTargetPicker: View {
+    let targets: [FullScreenCaptureTarget]
+    @Binding var selectedTargetID: CGDirectDisplayID
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "display")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Picker("Full capture display", selection: $selectedTargetID) {
+                ForEach(targets) { target in
+                    Text(target.title)
+                        .tag(target.id)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 190)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 54)
+        .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(.quaternary)
+        }
+        .accessibilityLabel("Full capture display")
     }
 }
 

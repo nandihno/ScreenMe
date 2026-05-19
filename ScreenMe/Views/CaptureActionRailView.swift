@@ -31,7 +31,7 @@ struct CaptureActionRailView: View {
                 .disabled(capture == nil)
 
                 Button(action: reveal) {
-                    Label("Reveal PNG", systemImage: "folder")
+                    Label("Reveal the last 10 Captures", systemImage: "folder")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -120,6 +120,7 @@ private struct CaptureMetadataView: View {
                 .font(.subheadline.weight(.semibold))
 
             MetadataRow(title: "Dimensions", value: capture?.dimensionsText ?? "--")
+            MetadataRow(title: "Mode", value: capture?.captureMode.title ?? "--")
             MetadataRow(title: "Format", value: "PNG")
             MetadataRow(title: "File", value: capture?.fileName ?? "--")
         }

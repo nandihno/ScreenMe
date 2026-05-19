@@ -9,8 +9,13 @@ struct ContentView: View {
 
             CaptureToolbarView(
                 phase: captureStore.phase,
+                captureMode: captureStore.captureMode,
                 captureDelaySeconds: $captureStore.captureDelaySeconds,
-                startSelectionCapture: captureStore.startSelectionCapture,
+                fullScreenTargets: captureStore.fullScreenTargets,
+                selectedFullScreenTargetID: $captureStore.selectedFullScreenTargetID,
+                selectCaptureMode: captureStore.selectCaptureMode,
+                selectFullScreenTarget: captureStore.selectFullScreenTarget,
+                startCapture: captureStore.startCapture,
                 cancelPendingCapture: captureStore.cancelPendingCapture
             )
 
