@@ -6,57 +6,56 @@ struct CaptureLibraryView: View {
     let phase: CapturePhase
     let refresh: () -> Void
     let selectCapture: (RecentCaptureItem) -> Void
-    let openForAnnotation: (RecentCaptureItem) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 170, maximum: 230), spacing: 14)
+        GridItem(.adaptive(minimum: 105, maximum: 155), spacing: 8)
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Recent Captures")
-                        .font(.headline)
-
-                    Text("\(recentCaptures.count) of the last 10 saved PNGs")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button(action: refresh) {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .disabled(phase.isBusy)
-            }
-
+        VStack(spacing: 0) {
+            libraryHeader
+            Divider()
             if recentCaptures.isEmpty {
-                EmptyLibraryState()
+                ContentUnavailableView(
+                    "No Captures",
+                    systemImage: "photo.on.rectangle.angled",
+                    description: Text("Screenshots will appear here after saving.")
+                )
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(recentCaptures) { item in
                             CaptureLibraryCard(
                                 item: item,
                                 isSelected: selectedCaptureID == item.id,
-                                select: { selectCapture(item) },
-                                open: { openForAnnotation(item) }
+                                select: { selectCapture(item) }
                             )
                         }
                     }
-                    .padding(2)
+                    .padding(10)
                 }
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(.quaternary)
+        .navigationTitle("Recents")
+    }
+
+    private var libraryHeader: some View {
+        HStack {
+            Text(recentCaptures.isEmpty ? "No saves" : "\(recentCaptures.count) saved")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button(action: refresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(phase.isBusy)
+            .help("Refresh captures")
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 
@@ -64,87 +63,53 @@ private struct CaptureLibraryCard: View {
     let item: RecentCaptureItem
     let isSelected: Bool
     let select: () -> Void
-    let open: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Button(action: select) {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 6) {
                 Image(nsImage: item.image)
                     .resizable()
                     .interpolation(.high)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 108)
-                    .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .scaledToFill()
+                    .frame(height: 72)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
                     .overlay {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(.red, lineWidth: 2)
-                        } else {
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(.quaternary)
-                        }
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(
+                                isSelected ? Color.red : Color(.quaternaryLabelColor),
+                                lineWidth: isSelected ? 2 : 0.5
+                            )
                     }
-            }
-            .buttonStyle(.plain)
-            .onTapGesture(count: 2, perform: open)
+                    .shadow(
+                        color: .black.opacity(isHovered ? 0.18 : 0.06),
+                        radius: isHovered ? 6 : 2,
+                        y: 1
+                    )
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.fileName)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Text("\(item.dimensionsText) · \(Self.dateFormatter.string(from: item.capturedAt))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Button(action: open) {
-                Label("Annotate", systemImage: "pencil.and.outline")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(10)
-        .background(.background.opacity(isSelected ? 0.72 : 0.42), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.red.opacity(0.58))
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.quaternary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.capturedAt, format: .relative(presentation: .named))
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                    Text(item.dimensionsText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-}
-
-private struct EmptyLibraryState: View {
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(.secondary)
-
-            VStack(spacing: 4) {
-                Text("No recent captures")
-                    .font(.title3.weight(.semibold))
-
-                Text("Captured PNGs will appear here after they are saved.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .buttonStyle(.plain)
+        .padding(6)
+        .background(
+            isSelected
+                ? Color.red.opacity(0.08)
+                : (isHovered ? Color(.selectedContentBackgroundColor).opacity(0.06) : .clear),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }

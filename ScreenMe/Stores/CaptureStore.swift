@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 
 @MainActor
 final class CaptureStore: ObservableObject {
@@ -20,6 +21,7 @@ final class CaptureStore: ObservableObject {
     private var hiddenWindows: [NSWindow] = []
     private var captureTask: Task<Void, Never>?
     private var annotationsByCaptureID: [URL: [CaptureAnnotation]] = [:]
+    private var didRequestScreenCaptureAccessThisSession = false
 
     init(captureService: ScreenCaptureService? = nil) {
         self.captureService = captureService ?? ScreenCaptureService()
@@ -210,6 +212,14 @@ final class CaptureStore: ObservableObject {
             return
         }
 
+        phase = .requestingPermission
+        statusMessage = "Checking Screen Recording access for ScreenMe."
+        guard requestScreenCaptureAccessIfNeeded() else {
+            phase = .failed("Screen Recording access is required.")
+            statusMessage = "Screen Recording is not active for this running build. Reset ScreenMe's Screen Recording entry, grant access, then quit and reopen ScreenMe."
+            return
+        }
+
         if mode == .full {
             refreshFullScreenTargets(preferAppWindowScreen: selectedFullScreenTargetID == nil)
         }
@@ -225,6 +235,19 @@ final class CaptureStore: ObservableObject {
         try? await Task.sleep(for: .milliseconds(200))
 
         await handleSystemPickerCapture(mode: mode, fullScreenTarget: fullScreenTarget)
+    }
+
+    private func requestScreenCaptureAccessIfNeeded() -> Bool {
+        if CGPreflightScreenCaptureAccess() {
+            return true
+        }
+
+        guard !didRequestScreenCaptureAccessThisSession else {
+            return false
+        }
+
+        didRequestScreenCaptureAccessThisSession = true
+        return CGRequestScreenCaptureAccess()
     }
 
     private func handleSystemPickerCapture(

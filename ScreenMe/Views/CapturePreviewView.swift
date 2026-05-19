@@ -11,8 +11,7 @@ struct CapturePreviewView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.black.opacity(0.08))
+            Color.black.opacity(0.07)
 
             if let capture {
                 CaptureAnnotationCanvas(
@@ -24,14 +23,10 @@ struct CapturePreviewView: View {
                     updateDraftAnnotation: { draftAnnotationRect = $0 },
                     commitAnnotation: commitAnnotation
                 )
-                .padding(18)
+                .padding(24)
             } else {
                 EmptyPreviewState()
             }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(.quaternary)
         }
     }
 
@@ -71,6 +66,7 @@ private struct CaptureAnnotationCanvas: View {
                     .scaledToFit()
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .position(x: imageFrame.midX, y: imageFrame.midY)
+                    .shadow(color: .black.opacity(0.28), radius: 16, y: 4)
                     .accessibilityLabel("Latest screenshot preview")
 
                 ForEach(annotations) { annotation in
@@ -227,20 +223,10 @@ private struct AnnotationShapeView: View {
 
 private struct EmptyPreviewState: View {
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: 54, weight: .light))
-                .foregroundStyle(.secondary)
-
-            VStack(spacing: 5) {
-                Text("No capture yet")
-                    .font(.title3.weight(.semibold))
-
-                Text("Use Capture to select a screen region.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ContentUnavailableView(
+            "No Capture Yet",
+            systemImage: "rectangle.dashed",
+            description: Text("Use Capture to take a screenshot.")
+        )
     }
 }
