@@ -31,9 +31,15 @@ struct ContentView: View {
 
             switch selectedWorkspaceTab {
             case .annotate:
-                annotationWorkspace
+                AnnotationWorkspaceView(captureStore: captureStore)
             case .recent:
-                recentWorkspace
+                RecentWorkspaceView(
+                    captureStore: captureStore,
+                    openForAnnotation: { item in
+                        captureStore.selectRecentCapture(item)
+                        selectedWorkspaceTab = .annotate
+                    }
+                )
             }
         }
         .padding(22)
@@ -49,59 +55,6 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
         }
-    }
-
-    private var annotationWorkspace: some View {
-        HStack(spacing: 16) {
-            CapturePreviewView(
-                capture: captureStore.latestCapture,
-                annotations: captureStore.annotations,
-                selectedAnnotationShape: captureStore.selectedAnnotationShape,
-                selectedAnnotationColor: captureStore.selectedAnnotationColor,
-                addAnnotation: captureStore.addAnnotation
-            )
-
-            actionRail
-        }
-    }
-
-    private var recentWorkspace: some View {
-        HStack(spacing: 16) {
-            CaptureLibraryView(
-                recentCaptures: captureStore.recentCaptures,
-                selectedCaptureID: captureStore.selectedRecentCaptureID,
-                phase: captureStore.phase,
-                refresh: { captureStore.refreshRecentCaptures() },
-                selectCapture: captureStore.selectRecentCapture,
-                openForAnnotation: { item in
-                    captureStore.selectRecentCapture(item)
-                    selectedWorkspaceTab = .annotate
-                }
-            )
-
-            actionRail
-        }
-        .onAppear {
-            captureStore.refreshRecentCaptures()
-        }
-    }
-
-    private var actionRail: some View {
-        CaptureActionRailView(
-            phase: captureStore.phase,
-            capture: captureStore.latestCapture,
-            selectedAnnotationShape: captureStore.selectedAnnotationShape,
-            selectedAnnotationColor: captureStore.selectedAnnotationColor,
-            annotations: captureStore.annotations,
-            statusMessage: captureStore.statusMessage,
-            copy: captureStore.copyLatestCapture,
-            reveal: captureStore.revealLatestPNG,
-            selectAnnotationShape: captureStore.selectAnnotationShape,
-            selectAnnotationColor: captureStore.selectAnnotationColor,
-            undoAnnotation: captureStore.undoLatestAnnotation,
-            clearAnnotations: captureStore.clearAnnotations,
-            openScreenRecordingSettings: captureStore.openScreenRecordingSettings
-        )
     }
 
     private var header: some View {
@@ -124,6 +77,67 @@ struct ContentView: View {
                 .padding(.vertical, 5)
                 .background(.red.opacity(0.12), in: Capsule())
         }
+    }
+}
+
+private struct AnnotationWorkspaceView: View {
+    @ObservedObject var captureStore: CaptureStore
+
+    var body: some View {
+        HStack(spacing: 16) {
+            CapturePreviewView(
+                capture: captureStore.latestCapture,
+                annotations: captureStore.annotations,
+                selectedAnnotationShape: captureStore.selectedAnnotationShape,
+                selectedAnnotationColor: captureStore.selectedAnnotationColor,
+                addAnnotation: captureStore.addAnnotation
+            )
+
+            CaptureActionRailView(captureStore: captureStore)
+        }
+    }
+}
+
+private struct RecentWorkspaceView: View {
+    @ObservedObject var captureStore: CaptureStore
+    let openForAnnotation: (RecentCaptureItem) -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            CaptureLibraryView(
+                recentCaptures: captureStore.recentCaptures,
+                selectedCaptureID: captureStore.selectedRecentCaptureID,
+                phase: captureStore.phase,
+                refresh: { captureStore.refreshRecentCaptures() },
+                selectCapture: captureStore.selectRecentCapture,
+                openForAnnotation: openForAnnotation
+            )
+
+            CaptureActionRailView(captureStore: captureStore)
+        }
+        .onAppear {
+            captureStore.refreshRecentCaptures()
+        }
+    }
+}
+
+private extension CaptureActionRailView {
+    init(captureStore: CaptureStore) {
+        self.init(
+            phase: captureStore.phase,
+            capture: captureStore.latestCapture,
+            selectedAnnotationShape: captureStore.selectedAnnotationShape,
+            selectedAnnotationColor: captureStore.selectedAnnotationColor,
+            annotations: captureStore.annotations,
+            statusMessage: captureStore.statusMessage,
+            copy: captureStore.copyLatestCapture,
+            reveal: captureStore.revealLatestPNG,
+            selectAnnotationShape: captureStore.selectAnnotationShape,
+            selectAnnotationColor: captureStore.selectAnnotationColor,
+            undoAnnotation: captureStore.undoLatestAnnotation,
+            clearAnnotations: captureStore.clearAnnotations,
+            openScreenRecordingSettings: captureStore.openScreenRecordingSettings
+        )
     }
 }
 
