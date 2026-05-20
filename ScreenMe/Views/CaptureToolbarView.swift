@@ -100,19 +100,31 @@ struct CaptureToolbarContent: ToolbarContent {
     @ViewBuilder
     private var captureButton: some View {
         if phase.isCountingDown {
-            Button(action: cancelPendingCapture) {
-                Label("Cancel", systemImage: "xmark.circle.fill")
+            Button(role: .cancel, action: cancelPendingCapture) {
+                Label("Cancel Capture", systemImage: "xmark.circle")
+                    .labelStyle(.titleAndIcon)
+                    .font(.callout.weight(.medium))
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
             .tint(.orange)
+            .keyboardShortcut(.cancelAction)
+            .help("Cancel timed capture")
         } else {
             Button(action: startCapture) {
-                Label(captureButtonTitle, systemImage: "camera.viewfinder")
+                Label(captureButtonTitle, systemImage: captureButtonSystemImage)
+                    .labelStyle(.titleAndIcon)
+                    .font(.callout.weight(.semibold))
                     .symbolEffect(.pulse, isActive: phase.isBusy)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .tint(.accentColor)
             .disabled(phase.isBusy)
             .keyboardShortcut("5", modifiers: [.control, .command])
+            .help("Start capture")
         }
     }
 
@@ -125,6 +137,19 @@ struct CaptureToolbarContent: ToolbarContent {
             captureDelaySeconds > 0
                 ? "\(captureMode.title) in \(captureDelaySeconds)s"
                 : "Capture \(captureMode.title)"
+        }
+    }
+
+    private var captureButtonSystemImage: String {
+        switch phase {
+        case .requestingPermission:
+            "lock"
+        case .selecting:
+            "cursorarrow"
+        case .capturing:
+            "camera.fill"
+        default:
+            captureDelaySeconds > 0 ? "timer" : "camera.viewfinder"
         }
     }
 }
